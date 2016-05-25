@@ -10,7 +10,7 @@ INCLUDES =								\
 	-DPACKAGE_LOCALE_DIR=\"$(localedir)\"				\
 	$(NULL)
 
-bin_PROGRAMS = xfce4-clipman xfce4-popup-clipman xfce4-clipman-settings
+bin_PROGRAMS = xfce4-clipman xfce4-popup-clipman xfce4-clipman-settings 
 
 #
 # Maintainer Mode
@@ -217,3 +217,7 @@ CLEANFILES =								\
 DISTCLEANFILES =							\
 	$(BUILT_SOURCES)						\
 	$(NULL)
+
+install-exec-hook:
+	$(LN_S) -f $(exec_prefix)/bin/xfce4-popup-clipman $(exec_prefix)/bin/xfce4-popup-clipman-actions
+
