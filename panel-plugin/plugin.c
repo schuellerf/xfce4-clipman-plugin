@@ -45,8 +45,7 @@ static gboolean         my_plugin_set_popup_selection   (MyPlugin *plugin);
 static GdkFilterReturn  event_filter_popup_menu         (GdkXEvent *xevent,
                                                          GdkEvent *event,
                                                          MyPlugin *plugin);
-static gboolean         xfce_popup_grab_available       (GdkWindow *win,
-                                                         guint32 timestamp);
+static gboolean         xfce_popup_wait_mod_release     (void);
 
 
 
@@ -424,8 +423,6 @@ static GdkFilterReturn
 event_filter_popup_menu (GdkXEvent *xevent, GdkEvent *event, MyPlugin *plugin)
 {
     XClientMessageEvent *evt;
-    GdkScreen *screen;
-    GdkWindow *root;
     Atom message_type;
     evt = (XClientMessageEvent *)xevent;
 
@@ -436,18 +433,7 @@ event_filter_popup_menu (GdkXEvent *xevent, GdkEvent *event, MyPlugin *plugin)
     if (evt->message_type != message_type)
       return GDK_FILTER_CONTINUE;
 
-    /* Copy workaround from xfdesktop to handle the awkward case where binding
-     * a keyboard shortcut to the popup command doesn't always work out... */
-#ifdef PANEL_PLUGIN
-    screen = gtk_widget_get_screen (GTK_WIDGET (plugin->button));
-#elif defined (STATUS_ICON)
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-    screen = gtk_status_icon_get_screen (plugin->status_icon);
-G_GNUC_END_IGNORE_DEPRECATIONS
-#endif
-    root = gdk_screen_get_root_window (screen);
-
-    if (!xfce_popup_grab_available (root, GDK_CURRENT_TIME))
+    if (!xfce_popup_wait_mod_release ())
       {
         g_critical ("Unable to get keyboard/mouse grab.");
         return FALSE;
@@ -490,47 +476,32 @@ make_window_visible (GdkSeat *seat,
 }
 #endif
 
-/* Code taken from xfwm4/src/menu.c:grab_available().  This should fix the case
- * where binding 'xfdesktop -menu' to a keyboard shortcut sometimes works and
- * sometimes doesn't.  Credit for this one goes to Olivier.
- */
 static gboolean
-xfce_popup_grab_available (GdkWindow *win, guint32 timestamp)
+xfce_popup_wait_mod_release (void)
 {
-    GdkDisplay* display = gdk_window_get_display(win);
+  GdkModifierType state = 0;
+  GdkDisplay* display = gdk_display_get_default ();
 #if GTK_CHECK_VERSION (3, 20, 0)
-    GdkSeat *seat = gdk_display_get_default_seat (display);
-#endif
-    GdkGrabStatus g = GDK_GRAB_ALREADY_GRABBED;
-    gboolean grab_failed = TRUE;
-    gint i = 0;
-
-    TRACE ("entering grab_available");
-
-    /* With a keyboard grab elsewhere, we have to wait on that to clear.
-     * So try up to 2500 times and only keep trying when the failure is
-     * already grabbed, any other failure mode will never succeed.
-     */
-    while ((i++ < 2500) && grab_failed && g == GDK_GRAB_ALREADY_GRABBED)
-    {
-#if GTK_CHECK_VERSION (3, 20, 0)
-      g = gdk_seat_grab(seat, win, GDK_SEAT_CAPABILITY_KEYBOARD, TRUE, NULL, NULL, make_window_visible, NULL);
-      if (g == GDK_GRAB_SUCCESS)
-      {
-          gdk_seat_ungrab (seat);
-          grab_failed = FALSE;
-      }
+  GdkSeat *seat = gdk_display_get_default_seat (display);
+  GdkDevice *device = gdk_seat_get_pointer (seat);
 #else
-      G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-      g = gdk_keyboard_grab (win, TRUE, timestamp);
-      if (g == GDK_GRAB_SUCCESS)
-      {
-          gdk_keyboard_ungrab(timestamp);
-          grab_failed = FALSE;
-      }
-      G_GNUC_END_IGNORE_DEPRECATIONS
+  GdkDeviceManager *device_manager = gdk_display_get_device_manager (display);
+  GdkDevice *device = gdk_device_manager_get_client_pointer (device_manager);
 #endif
-    }
+  GdkScreen* screen = gdk_screen_get_default ();
+  GdkWindow * root_win = gdk_screen_get_root_window (screen);
 
-    return (!grab_failed);
+  gint i = 0;
+
+  /* wait two seconds for the guy to release the modifiers
+     although we should wait for all keys to be released
+   */
+  do
+    {
+      gdk_window_get_device_position (root_win, device, NULL, NULL, &state);
+      g_usleep(10000);
+    }
+  while ((i++ < 200) && (state != 0));
+
+  return (state == 0);
 }
